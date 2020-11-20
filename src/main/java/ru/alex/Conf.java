@@ -12,7 +12,19 @@ import java.util.stream.Stream;
 public class Conf {
     private final Properties properties;
     private final List<IBindModule> modules;
+    private static final Map<Class<?>, Object> defaultValues;
 
+    static {
+        Map<Class<?>, Object> map = new IdentityHashMap<>();
+        map.put(byte.class, (byte) 0);
+        map.put(short.class, (short) 0);
+        map.put(int.class, 0);
+        map.put(long.class, 0L);
+        map.put(float.class, 0.0f);
+        map.put(double.class, 0.0);
+        map.put(char.class, (char) 0);
+        defaultValues = Collections.unmodifiableMap(map);
+    }
 
     public Conf(InputStream is, List<IBindModule> modules, boolean overrideWithSystem) throws IOException {
         this(load(is), modules, overrideWithSystem);
@@ -27,7 +39,7 @@ public class Conf {
         this.modules = Collections.unmodifiableList(modules);
     }
 
-    private void mergeArraysProps(Properties properties) {
+    protected void mergeArraysProps(Properties properties) {
         final Map<String, StringBuilder> map = new HashMap<>();
         for (Object key : new HashSet<>(properties.keySet())) {
             final String keyStr = key.toString();
@@ -47,7 +59,7 @@ public class Conf {
         });
     }
 
-    private static Properties load(InputStream is) throws IOException {
+    protected static Properties load(InputStream is) throws IOException {
         final Properties properties = new Properties();
         properties.load(is);
         return properties;
@@ -59,65 +71,50 @@ public class Conf {
         final ConstructorInfo constructorInfo = new ConstructorInfo(aClass);
         final Object[] args = new Object[constructorInfo.parameterCount];
         for (int i = 0; i < constructorInfo.parameterCount; i++) {
-            args[i] = newInstance(constructorInfo.parameters[i], new Prop(constructorInfo.parameterNames[i]));
+            args[i] = newInstance(constructorInfo.parameters[i], constructorInfo.parameterNames[i]);
         }
         return (T) constructorInfo.constructor.newInstance(args);
     }
 
-    private Object newInstance(Parameter parameter, Prop prop) throws IllegalAccessException, InvocationTargetException, InstantiationException {
+    protected Object newInstance(Parameter parameter, String prop) throws IllegalAccessException, InvocationTargetException, InstantiationException {
 
         final Class<?> parameterType = parameter.getType();
 
         final Optional<IBindModule> bindModule = modules.stream().filter(m -> m.test(parameter)).findFirst();
         if (bindModule.isPresent()) {
-            return bindModule.get().apply(properties, prop.get(), parameter);
+            final String value = properties.getProperty(prop);
+            if (value == null) {
+                return getDefault(parameter, prop);
+            }
+            return bindModule.get().apply(properties, prop, parameter);
         }
         final ConstructorInfo constructorInfo = new ConstructorInfo(parameterType);
         final Object[] args = new Object[constructorInfo.parameterCount];
         for (int i = 0; i < constructorInfo.parameterCount; i++) {
-            args[i] = newInstance(constructorInfo.parameters[i], prop.next(constructorInfo.parameterNames[i]));
+            args[i] = newInstance(constructorInfo.parameters[i], prop + "." + constructorInfo.parameterNames[i]);
         }
         return constructorInfo.constructor.newInstance(args);
     }
 
-    public static class Prop {
-        final String name;
-        Prop next;
-        final Prop head;
-
-
-        Prop(String name) {
-            this.name = name;
-            next = null;
-            head = this;
-        }
-
-        private Prop(String name, Prop head) {
-            this.name = name;
-            this.next = null;
-            this.head = head;
-        }
-
-        Prop next(String name) {
-            return (next = new Prop(name, this.head));
-        }
-
-
-        public String get() {
-            final StringBuilder builder = new StringBuilder();
-            Prop current = head;
-            do {
-                builder.append(current.name);
-                if (current.next != null) {
-                    builder.append(".");
-                }
-                current = current.next;
-            } while (current != null);
-            return builder.toString();
+    protected Object getDefault(Parameter parameter, String prop) {
+        if (!parameter.isAnnotationPresent(OptProp.class)) {
+            throw new IllegalArgumentException("Missing required property " + prop);
+        } else {
+            return getDefaultValue(parameter);
         }
     }
 
-    private static class ConstructorInfo {
+
+    protected Object getDefaultValue(Parameter parameter) {
+        final Class<?> type = parameter.getType();
+        if (!type.isPrimitive()) {
+            return null;
+        }
+
+        return defaultValues.get(type);
+    }
+
+    protected static class ConstructorInfo {
         final Parameter[] parameters;
         final String[] parameterNames;
         final int parameterCount;

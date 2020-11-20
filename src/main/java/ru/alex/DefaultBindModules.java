@@ -90,6 +90,7 @@ public enum DefaultBindModules implements IBindModule {
         }
 
 
+        @SuppressWarnings("unchecked")
         private Collection<String> getCollection(Parameter parameter) throws InstantiationException, IllegalAccessException {
             final Class<?> type = parameter.getType();
             if (List.class.isAssignableFrom(type)) {
@@ -98,9 +99,10 @@ public enum DefaultBindModules implements IBindModule {
                 return new HashSet<>();
             } else if (Queue.class.isAssignableFrom(type)) {
                 return new ArrayDeque<>();
+            } else if (!type.isInterface()) {
+                return (Collection<String>) type.newInstance();
             } else {
-                //throw new UnsupportedOperationException("Unsupported collection type " + parameter);
-                return new ArrayList<>();
+                throw new UnsupportedOperationException("Unsupported collection type " + parameter);
             }
         }
     };

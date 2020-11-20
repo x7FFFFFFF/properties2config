@@ -9,7 +9,7 @@ public class Config {
     private final int val;
 
     @BindProperties({"list","server", "e", "val"})
-    public Config(List<String> list, Server server, E e, int val) {
+    public Config(List<String> list, Server server, E e, @OptProp int val) {
         this.list = list;
         this.server = server;
         this.e = e;
