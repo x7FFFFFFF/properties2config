@@ -2,6 +2,7 @@ package ru.alex;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.Reader;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Parameter;
@@ -59,27 +60,30 @@ public class Conf {
         });
     }
 
-    protected static Properties load(InputStream is) throws IOException {
+    static Properties load(InputStream is) throws IOException {
         final Properties properties = new Properties();
         properties.load(is);
         return properties;
     }
 
+    static Properties load(Reader is) throws IOException {
+        final Properties properties = new Properties();
+        properties.load(is);
+        return properties;
+    }
 
     @SuppressWarnings("unchecked")
     public <T> T bind(Class<T> aClass) throws IllegalAccessException, InvocationTargetException, InstantiationException {
         final ConstructorInfo constructorInfo = new ConstructorInfo(aClass);
         final Object[] args = new Object[constructorInfo.parameterCount];
         for (int i = 0; i < constructorInfo.parameterCount; i++) {
-            args[i] = newInstance(constructorInfo.parameters[i], constructorInfo.parameterNames[i]);
+            args[i] = newInstance(constructorInfo.parameters[i], constructorInfo.prefix.prefix + constructorInfo.parameterNames[i]);
         }
         return (T) constructorInfo.constructor.newInstance(args);
     }
 
     protected Object newInstance(Parameter parameter, String prop) throws IllegalAccessException, InvocationTargetException, InstantiationException {
-
         final Class<?> parameterType = parameter.getType();
-
         final Optional<IBindModule> bindModule = modules.stream().filter(m -> m.test(parameter)).findFirst();
         if (bindModule.isPresent()) {
             final String value = properties.getProperty(prop);
@@ -91,7 +95,7 @@ public class Conf {
         final ConstructorInfo constructorInfo = new ConstructorInfo(parameterType);
         final Object[] args = new Object[constructorInfo.parameterCount];
         for (int i = 0; i < constructorInfo.parameterCount; i++) {
-            args[i] = newInstance(constructorInfo.parameters[i], prop + "." + constructorInfo.parameterNames[i]);
+            args[i] = newInstance(constructorInfo.parameters[i], prop + constructorInfo.prefix.midle + constructorInfo.parameterNames[i]);
         }
         return constructorInfo.constructor.newInstance(args);
     }
@@ -104,19 +108,18 @@ public class Conf {
         }
     }
 
-
     protected Object getDefaultValue(Parameter parameter) {
         final Class<?> type = parameter.getType();
         if (!type.isPrimitive()) {
             return null;
         }
-
         return defaultValues.get(type);
     }
 
     protected static class ConstructorInfo {
         final Parameter[] parameters;
         final String[] parameterNames;
+        final Prefix prefix;
         final int parameterCount;
         private final Constructor<?> constructor;
 
@@ -126,11 +129,38 @@ public class Conf {
                 throw new IllegalStateException("Must be only one constructors with @BindProperties");
             }
             constructor = constructors.get(0);
-            parameterNames = constructor.getAnnotation(BindProperties.class).value();
+            final BindProperties annotation = constructor.getAnnotation(BindProperties.class);
+            parameterNames = annotation.value();
             parameterCount = constructor.getParameterCount();
             assert parameterNames.length == parameterCount;
             parameters = constructor.getParameters();
+            prefix = new Prefix(annotation);
         }
+    }
+
+    private static class Prefix {
+        private final String prefix;
+        private final String midle;
+
+        public Prefix(BindProperties annotation) {
+            final String val = annotation.prefix();
+            if (val == null || val.isEmpty()) {
+                prefix = "";
+                midle = ".";
+                return;
+            }
+            prefix = end(val);
+            midle = start(end(val));
+        }
+
+        private String end(String val) {
+            return val.endsWith(".") ? val : val + ".";
+        }
+
+        private String start(String val) {
+            return val.startsWith(".") ? val : "." + val;
+        }
+
 
     }
 }
